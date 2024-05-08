@@ -1,0 +1,18 @@
+[package]
+name = "unicode-ellipsis"
+version = "0.0.0"
+edition = "2021"
+authors = ["Clement Tsang <cjhtsang@uwaterloo.ca>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ClementTsang/unicode-ellipsis"
+readme = "README.md"
+categories = []
+keywords = []
+description = "A crate to truncate Unicode strings and add ellipsis to them."
+
+[lib]
+test = true
+doctest = true
+doc = true
+
+[dependencies]
