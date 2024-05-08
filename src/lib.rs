@@ -1,6 +1,6 @@
 //! A crate to truncate Unicode strings to a certain width, automatically adding an ellipsis if the string is too long.
 //!
-//! Additionally contains some helper functions regarding string width.
+//! Additionally contains some helper functions regarding string and grapheme width.
 
 use std::num::NonZeroUsize;
 
@@ -28,7 +28,7 @@ pub fn str_width(s: &str) -> usize {
 /// Note that while you *can* pass in an entire string, the point is to check
 /// individual graphemes (e.g. `"a"`, `"💎"`, `"大"`, `"🇨🇦"`).
 #[inline]
-fn grapheme_width(g: &str) -> usize {
+pub fn grapheme_width(g: &str) -> usize {
     if g.contains('\u{200d}') {
         2
     } else {
