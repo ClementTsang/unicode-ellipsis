@@ -1,6 +1,6 @@
 [package]
 name = "unicode-ellipsis"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 authors = ["Clement Tsang <cjhtsang@uwaterloo.ca>"]
 license = "MIT OR Apache-2.0"
