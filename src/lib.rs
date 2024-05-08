@@ -1,4 +1,6 @@
 //! A crate to truncate Unicode strings to a certain width, automatically adding an ellipsis if the string is too long.
+//!
+//! Additionally contains some helper functions regarding string width.
 
 use std::num::NonZeroUsize;
 
@@ -20,7 +22,7 @@ pub fn str_width(s: &str) -> usize {
         .sum()
 }
 
-/// Returns the "width" of grapheme `g`. This takes into account some things like
+/// Returns the width of grapheme `g`. This takes into account some things like
 /// joiners when calculating width.
 ///
 /// Note that while you *can* pass in an entire string, the point is to check
