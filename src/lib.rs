@@ -2,7 +2,7 @@
 //!
 //! Additionally contains some helper functions regarding string and grapheme width.
 
-use std::num::NonZeroUsize;
+use std::{borrow::Cow, num::NonZeroUsize};
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -38,68 +38,105 @@ pub fn grapheme_width(g: &str) -> usize {
 }
 
 enum AsciiIterationResult {
-    Complete,
+    Complete(String),
     Remaining(usize),
+}
+
+macro_rules! add_ellipsis {
+    ($text:expr) => {{
+        const SIZE_OF_ELLIPSIS: usize = 3;
+        let mut ret = String::with_capacity($text.len() + SIZE_OF_ELLIPSIS);
+
+        if REVERSE {
+            ret.push('…');
+        }
+
+        ret.push_str($text);
+
+        if !REVERSE {
+            ret.push('…');
+        }
+
+        ret
+    }};
 }
 
 /// Greedily add characters to the output until a non-ASCII grapheme is found, or
 /// the output is `width` long.
 #[inline]
-fn greedy_ascii_add(content: &str, width: NonZeroUsize) -> (String, AsciiIterationResult) {
+fn greedy_ascii_add<const REVERSE: bool>(
+    content: &str,
+    width: NonZeroUsize,
+) -> AsciiIterationResult {
     let width: usize = width.into();
+    debug_assert!(width < content.len());
 
-    const SIZE_OF_ELLIPSIS: usize = 3;
-    let mut text = Vec::with_capacity(width - 1 + SIZE_OF_ELLIPSIS);
+    let mut bytes_consumed = 0;
 
-    let s = content.as_bytes();
+    macro_rules! current_byte {
+        () => {
+            if REVERSE {
+                content.as_bytes()[content.len() - 1 - bytes_consumed]
+            } else {
+                content.as_bytes()[bytes_consumed]
+            }
+        };
+    }
 
-    let mut current_index = 0;
+    macro_rules! consumed_slice {
+        () => {
+            // SAFETY: The use of `get_unchecked` is safe here because
+            // (`bytes_consumed` < `width`) && (`width` < `content.len()`)
+            // and `bytes_consumed` is at an ascii boundary.
+            unsafe {
+                if REVERSE {
+                    content.get_unchecked(content.len() - bytes_consumed..)
+                } else {
+                    content.get_unchecked(..bytes_consumed)
+                }
+            }
+        };
+    }
 
-    while current_index < width - 1 {
-        let current_byte = s[current_index];
+    while bytes_consumed < width - 1 {
+        let current_byte = current_byte!();
         if current_byte.is_ascii() {
-            text.push(current_byte);
-            current_index += 1;
+            bytes_consumed += 1;
         } else {
-            debug_assert!(text.is_ascii());
-
-            let current_index = AsciiIterationResult::Remaining(current_index);
-
-            // SAFETY: This conversion is safe to do unchecked, we only push ASCII characters up to
-            // this point.
-            let current_text = unsafe { String::from_utf8_unchecked(text) };
-
-            return (current_text, current_index);
+            debug_assert!(consumed_slice!().is_ascii());
+            return AsciiIterationResult::Remaining(bytes_consumed);
         }
     }
 
     // If we made it all the way through, then we probably hit the width limit.
-    debug_assert!(text.is_ascii());
+    debug_assert!(consumed_slice!().is_ascii());
 
-    let current_index = if s[current_index].is_ascii() {
-        let mut ellipsis = [0; SIZE_OF_ELLIPSIS];
-        '…'.encode_utf8(&mut ellipsis);
-        text.extend_from_slice(&ellipsis);
-        AsciiIterationResult::Complete
+    if current_byte!().is_ascii() {
+        AsciiIterationResult::Complete(add_ellipsis!(consumed_slice!()))
     } else {
-        AsciiIterationResult::Remaining(current_index)
-    };
-
-    // SAFETY: This conversion is safe to do unchecked, we only push ASCII characters up to
-    // this point.
-    let current_text = unsafe { String::from_utf8_unchecked(text) };
-
-    (current_text, current_index)
+        AsciiIterationResult::Remaining(bytes_consumed)
+    }
 }
 
-/// Truncates a string to the specified width with an ellipsis character.
+/// Truncates a string to the specified width with a trailing ellipsis character.
 #[inline]
-pub fn truncate_str(content: &str, width: usize) -> String {
+pub fn truncate_str(content: &str, width: usize) -> Cow<'_, str> {
+    _truncate_str::<false>(content, width)
+}
+
+/// Truncates a string to the specified width with a leading ellipsis character.
+#[inline]
+pub fn truncate_str_leading(content: &str, width: usize) -> Cow<'_, str> {
+    _truncate_str::<true>(content, width)
+}
+
+#[inline]
+fn _truncate_str<const REVERSE: bool>(content: &str, width: usize) -> Cow<'_, str> {
     if content.len() <= width {
         // If the entire string fits in the width, then we just
         // need to copy the entire string over.
 
-        content.to_owned()
+        content.into()
     } else if let Some(nz_width) = NonZeroUsize::new(width) {
         // What we are essentially doing is optimizing for the case that
         // most, if not all of the string is ASCII. As such:
@@ -109,48 +146,87 @@ pub fn truncate_str(content: &str, width: usize) -> String {
         //
         // If we didn't get a complete truncated string, then continue on treating the rest as graphemes.
 
-        let (mut text, res) = greedy_ascii_add(content, nz_width);
-        match res {
-            AsciiIterationResult::Complete => text,
-            AsciiIterationResult::Remaining(current_index) => {
-                let mut curr_width = text.len();
-                let mut early_break = false;
+        match greedy_ascii_add::<REVERSE>(content, nz_width) {
+            AsciiIterationResult::Complete(text) => text.into(),
+            AsciiIterationResult::Remaining(mut bytes_consumed) => {
+                // SAFETY: The use of `get_unchecked` is safe here because
+                // (`bytes_consumed` < `width`) && (`width` < `content.len()`)
+                // and `bytes_consumed` is at an ascii boundary.
+                let content_remaining = unsafe {
+                    if REVERSE {
+                        content.get_unchecked(..=content.len() - 1 - bytes_consumed)
+                    } else {
+                        content.get_unchecked(bytes_consumed..)
+                    }
+                };
+
+                let mut curr_width = bytes_consumed;
+                let mut exceeded_width = false;
 
                 // This tracks the length of the last added string - note this does NOT match the grapheme *width*.
                 // Since the previous characters are always ASCII, this is always initialized as 1, unless the string
                 // is empty.
-                let mut last_added_str_len = if text.is_empty() { 0 } else { 1 };
+                let mut last_grapheme_len = if curr_width == 0 { 0 } else { 1 };
 
                 // Cases to handle:
                 // - Completes adding the entire string.
                 // - Adds a character up to the boundary, then fails.
                 // - Adds a character not up to the boundary, then fails.
                 // Inspired by https://tomdebruijn.com/posts/rust-string-length-width-calculations/
-                for g in UnicodeSegmentation::graphemes(&content[current_index..], true) {
-                    let g_width = grapheme_width(g);
+                macro_rules! measure_graphemes {
+                    ($graphemes:expr) => {
+                        for g in $graphemes {
+                            let g_width = grapheme_width(g);
 
-                    if curr_width + g_width <= width {
-                        curr_width += g_width;
-                        last_added_str_len = g.len();
-                        text.push_str(g);
-                    } else {
-                        early_break = true;
-                        break;
-                    }
+                            if curr_width + g_width <= width {
+                                curr_width += g_width;
+                                last_grapheme_len = g.len();
+                                bytes_consumed += last_grapheme_len;
+                            } else {
+                                exceeded_width = true;
+                                break;
+                            }
+                        }
+                    };
                 }
 
-                if early_break {
+                let graphemes = UnicodeSegmentation::graphemes(content_remaining, true);
+
+                if REVERSE {
+                    measure_graphemes!(graphemes.rev())
+                } else {
+                    measure_graphemes!(graphemes)
+                }
+
+                macro_rules! consumed_slice {
+                    () => {
+                        // SAFETY: The use of `get_unchecked` is safe here because
+                        // `bytes_consumed` is tracking the lengths of graphemes contained
+                        // within `content` and `bytes_consumed` is at a grapheme boundary.
+                        unsafe {
+                            if REVERSE {
+                                content.get_unchecked(content.len() - bytes_consumed..)
+                            } else {
+                                content.get_unchecked(..bytes_consumed)
+                            }
+                        }
+                    };
+                }
+
+                if exceeded_width {
                     if curr_width == width {
-                        // Remove the last grapheme cluster added.
-                        text.truncate(text.len() - last_added_str_len);
+                        // Remove the last consumed grapheme cluster.
+                        bytes_consumed -= last_grapheme_len;
                     }
-                    text.push('…');
+
+                    add_ellipsis!(consumed_slice!()).into()
+                } else {
+                    consumed_slice!().into()
                 }
-                text
             }
         }
     } else {
-        String::default()
+        "".into()
     }
 }
 
@@ -184,6 +260,29 @@ mod tests {
     }
 
     #[test]
+    fn test_truncate_str_leading() {
+        let cpu_header = "▲CPU(c)";
+
+        assert_eq!(
+            truncate_str_leading(cpu_header, 8),
+            cpu_header,
+            "should match base string as there is extra room"
+        );
+
+        assert_eq!(
+            truncate_str_leading(cpu_header, 7),
+            cpu_header,
+            "should match base string as there is enough room"
+        );
+
+        assert_eq!(truncate_str_leading(cpu_header, 6), "…PU(c)");
+        assert_eq!(truncate_str_leading(cpu_header, 5), "…U(c)");
+        assert_eq!(truncate_str_leading(cpu_header, 4), "…(c)");
+        assert_eq!(truncate_str_leading(cpu_header, 1), "…");
+        assert_eq!(truncate_str_leading(cpu_header, 0), "");
+    }
+
+    #[test]
     fn test_truncate_ascii() {
         let content = "0123456";
 
@@ -204,6 +303,29 @@ mod tests {
         assert_eq!(truncate_str(content, 4), "012…");
         assert_eq!(truncate_str(content, 1), "…");
         assert_eq!(truncate_str(content, 0), "");
+    }
+
+    #[test]
+    fn test_truncate_ascii_leading() {
+        let content = "0123456";
+
+        assert_eq!(
+            truncate_str_leading(content, 8),
+            content,
+            "should match base string as there is extra room"
+        );
+
+        assert_eq!(
+            truncate_str_leading(content, 7),
+            content,
+            "should match base string as there is enough room"
+        );
+
+        assert_eq!(truncate_str_leading(content, 6), "…23456");
+        assert_eq!(truncate_str_leading(content, 5), "…3456");
+        assert_eq!(truncate_str_leading(content, 4), "…456");
+        assert_eq!(truncate_str_leading(content, 1), "…");
+        assert_eq!(truncate_str_leading(content, 0), "");
     }
 
     #[test]
@@ -235,6 +357,37 @@ mod tests {
         assert_eq!(truncate_str(cjk_2, 2), "…");
         assert_eq!(truncate_str(cjk_2, 1), "…");
         assert_eq!(truncate_str(cjk_2, 0), "");
+    }
+
+    #[test]
+    fn test_truncate_cjk_leading() {
+        let cjk = "施氏食獅史";
+
+        assert_eq!(
+            truncate_str_leading(cjk, 11),
+            cjk,
+            "should match base string as there is extra room"
+        );
+
+        assert_eq!(
+            truncate_str_leading(cjk, 10),
+            cjk,
+            "should match base string as there is enough room"
+        );
+
+        assert_eq!(truncate_str_leading(cjk, 9), "…氏食獅史");
+        assert_eq!(truncate_str_leading(cjk, 8), "…食獅史");
+        assert_eq!(truncate_str_leading(cjk, 2), "…");
+        assert_eq!(truncate_str_leading(cjk, 1), "…");
+        assert_eq!(truncate_str_leading(cjk, 0), "");
+
+        let cjk_2 = "你好嗎";
+        assert_eq!(truncate_str_leading(cjk_2, 5), "…好嗎");
+        assert_eq!(truncate_str_leading(cjk_2, 4), "…嗎");
+        assert_eq!(truncate_str_leading(cjk_2, 3), "…嗎");
+        assert_eq!(truncate_str_leading(cjk_2, 2), "…");
+        assert_eq!(truncate_str_leading(cjk_2, 1), "…");
+        assert_eq!(truncate_str_leading(cjk_2, 0), "");
     }
 
     #[test]
@@ -275,6 +428,43 @@ mod tests {
     }
 
     #[test]
+    fn test_truncate_mixed_one_leading() {
+        let test = "Test (施氏食獅史) Test";
+
+        assert_eq!(
+            truncate_str_leading(test, 30),
+            test,
+            "should match base string as there is extra room"
+        );
+
+        assert_eq!(
+            truncate_str_leading(test, 22),
+            test,
+            "should match base string as there is just enough room"
+        );
+
+        assert_eq!(
+            truncate_str_leading(test, 21),
+            "…st (施氏食獅史) Test",
+            "should truncate the T and replace the e with ellipsis"
+        );
+
+        assert_eq!(truncate_str_leading(test, 20), "…t (施氏食獅史) Test");
+        assert_eq!(truncate_str_leading(test, 19), "… (施氏食獅史) Test");
+        assert_eq!(truncate_str_leading(test, 18), "…(施氏食獅史) Test");
+        assert_eq!(truncate_str_leading(test, 17), "…施氏食獅史) Test");
+        assert_eq!(truncate_str_leading(test, 16), "…氏食獅史) Test");
+        assert_eq!(truncate_str_leading(test, 15), "…氏食獅史) Test");
+        assert_eq!(truncate_str_leading(test, 14), "…食獅史) Test");
+        assert_eq!(truncate_str_leading(test, 13), "…食獅史) Test");
+        assert_eq!(truncate_str_leading(test, 8), "…) Test");
+        assert_eq!(truncate_str_leading(test, 7), "…) Test");
+        assert_eq!(truncate_str_leading(test, 6), "… Test");
+        assert_eq!(truncate_str_leading(test, 5), "…Test");
+        assert_eq!(truncate_str_leading(test, 4), "…est");
+    }
+
+    #[test]
     fn test_truncate_mixed_two() {
         let test = "Test (施氏abc食abc獅史) Test";
 
@@ -298,6 +488,32 @@ mod tests {
         assert_eq!(truncate_str(test, 14), "Test (施氏abc…");
         assert_eq!(truncate_str(test, 11), "Test (施氏…");
         assert_eq!(truncate_str(test, 10), "Test (施…");
+    }
+
+    #[test]
+    fn test_truncate_mixed_two_leading() {
+        let test = "Test (施氏abc食abc獅史) Test";
+
+        assert_eq!(
+            truncate_str_leading(test, 30),
+            test,
+            "should match base string as there is extra room"
+        );
+
+        assert_eq!(
+            truncate_str_leading(test, 28),
+            test,
+            "should match base string as there is just enough room"
+        );
+
+        assert_eq!(truncate_str_leading(test, 26), "…t (施氏abc食abc獅史) Test");
+        assert_eq!(truncate_str_leading(test, 21), "…氏abc食abc獅史) Test");
+        assert_eq!(truncate_str_leading(test, 20), "…abc食abc獅史) Test");
+        assert_eq!(truncate_str_leading(test, 16), "…食abc獅史) Test");
+        assert_eq!(truncate_str_leading(test, 15), "…abc獅史) Test");
+        assert_eq!(truncate_str_leading(test, 14), "…abc獅史) Test");
+        assert_eq!(truncate_str_leading(test, 11), "…獅史) Test");
+        assert_eq!(truncate_str_leading(test, 10), "…史) Test");
     }
 
     #[test]
@@ -342,6 +558,48 @@ mod tests {
         assert_eq!(truncate_str(flag_mix, 0), "");
     }
 
+    #[test]
+    fn test_truncate_flags_leading() {
+        let flag = "🇨🇦";
+        assert_eq!(truncate_str_leading(flag, 3), flag);
+        assert_eq!(truncate_str_leading(flag, 2), flag);
+        assert_eq!(truncate_str_leading(flag, 1), "…");
+        assert_eq!(truncate_str_leading(flag, 0), "");
+
+        let flag_text = "🇨🇦 oh";
+        assert_eq!(truncate_str_leading(flag_text, 6), flag_text);
+        assert_eq!(truncate_str_leading(flag_text, 5), flag_text);
+        assert_eq!(truncate_str_leading(flag_text, 4), "… oh");
+
+        let flag_text_wrap = "!🇨🇦!";
+        assert_eq!(truncate_str_leading(flag_text_wrap, 6), flag_text_wrap);
+        assert_eq!(truncate_str_leading(flag_text_wrap, 4), flag_text_wrap);
+        assert_eq!(truncate_str_leading(flag_text_wrap, 3), "…!");
+        assert_eq!(truncate_str_leading(flag_text_wrap, 2), "…!");
+        assert_eq!(truncate_str_leading(flag_text_wrap, 1), "…");
+
+        let flag_cjk = "🇨🇦加拿大";
+        assert_eq!(truncate_str_leading(flag_cjk, 9), flag_cjk);
+        assert_eq!(truncate_str_leading(flag_cjk, 8), flag_cjk);
+        assert_eq!(truncate_str_leading(flag_cjk, 7), "…加拿大");
+        assert_eq!(truncate_str_leading(flag_cjk, 6), "…拿大");
+        assert_eq!(truncate_str_leading(flag_cjk, 5), "…拿大");
+        assert_eq!(truncate_str_leading(flag_cjk, 4), "…大");
+
+        let flag_mix = "🇨🇦加gaa拿naa大daai🇨🇦";
+        assert_eq!(truncate_str_leading(flag_mix, 20), flag_mix);
+        assert_eq!(truncate_str_leading(flag_mix, 19), "…加gaa拿naa大daai🇨🇦");
+        assert_eq!(truncate_str_leading(flag_mix, 18), "…gaa拿naa大daai🇨🇦");
+        assert_eq!(truncate_str_leading(flag_mix, 17), "…gaa拿naa大daai🇨🇦");
+        assert_eq!(truncate_str_leading(flag_mix, 15), "…a拿naa大daai🇨🇦");
+        assert_eq!(truncate_str_leading(flag_mix, 14), "…拿naa大daai🇨🇦");
+        assert_eq!(truncate_str_leading(flag_mix, 13), "…naa大daai🇨🇦");
+        assert_eq!(truncate_str_leading(flag_mix, 3), "…🇨🇦");
+        assert_eq!(truncate_str_leading(flag_mix, 2), "…");
+        assert_eq!(truncate_str_leading(flag_mix, 1), "…");
+        assert_eq!(truncate_str_leading(flag_mix, 0), "");
+    }
+
     /// This might not be the best way to handle it, but this at least tests that it doesn't crash...
     #[test]
     fn test_truncate_hindi() {
@@ -355,6 +613,21 @@ mod tests {
         assert_eq!(truncate_str(test, 2), "…");
         assert_eq!(truncate_str(test, 1), "…");
         assert_eq!(truncate_str(test, 0), "");
+        // cSpell:enable
+    }
+
+    #[test]
+    fn test_truncate_hindi_leading() {
+        // cSpell:disable
+        let test = "हिन्दी";
+        assert_eq!(truncate_str_leading(test, 10), test);
+        assert_eq!(truncate_str_leading(test, 6), "हिन्दी");
+        assert_eq!(truncate_str_leading(test, 5), "हिन्दी");
+        assert_eq!(truncate_str_leading(test, 4), "…न्दी");
+        assert_eq!(truncate_str_leading(test, 3), "…दी");
+        assert_eq!(truncate_str_leading(test, 2), "…");
+        assert_eq!(truncate_str_leading(test, 1), "…");
+        assert_eq!(truncate_str_leading(test, 0), "");
         // cSpell:enable
     }
 
@@ -392,5 +665,41 @@ mod tests {
         assert_eq!(truncate_str(scientist, 2), scientist);
         assert_eq!(truncate_str(scientist, 1), "…");
         assert_eq!(truncate_str(scientist, 0), "");
+    }
+
+    #[test]
+    fn truncate_emoji_leading() {
+        let heart_1 = "♥";
+        assert_eq!(truncate_str_leading(heart_1, 2), heart_1);
+        assert_eq!(truncate_str_leading(heart_1, 1), heart_1);
+        assert_eq!(truncate_str_leading(heart_1, 0), "");
+
+        let heart_2 = "❤";
+        assert_eq!(truncate_str_leading(heart_2, 2), heart_2);
+        assert_eq!(truncate_str_leading(heart_2, 1), heart_2);
+        assert_eq!(truncate_str_leading(heart_2, 0), "");
+
+        // This one has a U+FE0F modifier at the end, and is thus considered "emoji-presentation",
+        // see https://github.com/fish-shell/fish-shell/issues/10461#issuecomment-2079624670.
+        // This shouldn't really be a common issue in a terminal but eh.
+        let heart_emoji_pres = "❤️";
+        assert_eq!(truncate_str_leading(heart_emoji_pres, 2), heart_emoji_pres);
+        assert_eq!(truncate_str_leading(heart_emoji_pres, 1), "…");
+        assert_eq!(truncate_str_leading(heart_emoji_pres, 0), "");
+
+        let emote = "💎";
+        assert_eq!(truncate_str_leading(emote, 2), emote);
+        assert_eq!(truncate_str_leading(emote, 1), "…");
+        assert_eq!(truncate_str_leading(emote, 0), "");
+
+        let family = "👨‍👨‍👧‍👦";
+        assert_eq!(truncate_str_leading(family, 2), family);
+        assert_eq!(truncate_str_leading(family, 1), "…");
+        assert_eq!(truncate_str_leading(family, 0), "");
+
+        let scientist = "👩‍🔬";
+        assert_eq!(truncate_str_leading(scientist, 2), scientist);
+        assert_eq!(truncate_str_leading(scientist, 1), "…");
+        assert_eq!(truncate_str_leading(scientist, 0), "");
     }
 }
