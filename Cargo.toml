@@ -23,7 +23,6 @@ unicode-width = "0.1.12"
 
 [lints.rust]
 rust_2018_idioms = "deny"
-missing_docs = "deny"
 
 [lints.rustdoc]
 broken_intra_doc_links = "deny"
