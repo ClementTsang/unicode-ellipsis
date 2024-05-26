@@ -10,6 +10,7 @@ categories = ["text-processing", "value-formatting"]
 keywords = ["text", "unicode", "word", "strings"]
 description = "A crate to truncate Unicode strings to a certain width, automatically adding an ellipsis if the string is too long."
 documentation = "https://docs.rs/unicode-ellipsis"
+exclude = [".github", "CHANGELOG.md"]
 
 [lib]
 test = true
