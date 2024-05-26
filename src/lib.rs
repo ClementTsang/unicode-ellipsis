@@ -2,40 +2,12 @@
 //!
 //! Additionally contains some helper functions regarding string and grapheme width.
 
+mod width;
+pub use width::*;
+
 use std::{borrow::Cow, num::NonZeroUsize};
 
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
-
-/// Returns the width of a str `s`, breaking the string down into multiple [graphemes](https://www.unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries).
-/// This takes into account some things like [joiners](https://unicode-explorer.com/c/200D) when calculating width.
-#[inline]
-pub fn str_width(s: &str) -> usize {
-    UnicodeSegmentation::graphemes(s, true)
-        .map(|g| {
-            if g.contains('\u{200d}') {
-                2
-            } else {
-                UnicodeWidthStr::width(g)
-            }
-        })
-        .sum()
-}
-
-/// Returns the width of a single grapheme `g`. This takes into account some things like
-/// [joiners](https://unicode-explorer.com/c/200D) when calculating width.
-///
-/// Note that while you *can* pass in an entire string, this function assumes you are passing in
-/// just a single grapheme (e.g. `"a"`, `"💎"`, `"大"`, `"🇨🇦"`), and therefore makes no attempt in
-/// splitting the string into its individual graphemes.
-#[inline]
-pub fn grapheme_width(g: &str) -> usize {
-    if g.contains('\u{200d}') {
-        2
-    } else {
-        UnicodeWidthStr::width(g)
-    }
-}
 
 enum AsciiIterationResult {
     Complete(String),
