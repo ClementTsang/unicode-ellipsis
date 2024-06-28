@@ -90,20 +90,104 @@ fn greedy_ascii_add<const REVERSE: bool>(
     }
 }
 
+/// Handle the remaining characters in a [`&str`].
+#[inline]
+fn handle_remaining<const REVERSE: bool>(
+    content: &str,
+    mut bytes_consumed: usize,
+    width: usize,
+) -> Cow<'_, str> {
+    // SAFETY: The use of `get_unchecked` is safe here because
+    // (`bytes_consumed` < `width`) && (`width` < `content.len()`)
+    // and `bytes_consumed` is at an ASCII boundary.
+    let content_remaining = unsafe {
+        if REVERSE {
+            content.get_unchecked(..=content.len() - 1 - bytes_consumed)
+        } else {
+            content.get_unchecked(bytes_consumed..)
+        }
+    };
+
+    let mut curr_width = bytes_consumed;
+    let mut exceeded_width = false;
+
+    // This tracks the length of the last added string - note this does NOT match the grapheme *width*.
+    // Since the previous characters are always ASCII, this is always initialized as 1, unless the string
+    // is empty.
+    let mut last_grapheme_len = if curr_width == 0 { 0 } else { 1 };
+
+    // Cases to handle:
+    // - Completes adding the entire string.
+    // - Adds a character up to the boundary, then fails.
+    // - Adds a character not up to the boundary, then fails.
+    // Inspired by https://tomdebruijn.com/posts/rust-string-length-width-calculations/
+    macro_rules! measure_graphemes {
+        ($graphemes:expr) => {
+            for g in $graphemes {
+                let g_width = grapheme_width(g);
+
+                if curr_width + g_width <= width {
+                    curr_width += g_width;
+                    last_grapheme_len = g.len();
+                    bytes_consumed += last_grapheme_len;
+                } else {
+                    exceeded_width = true;
+                    break;
+                }
+            }
+        };
+    }
+
+    let graphemes = UnicodeSegmentation::graphemes(content_remaining, true);
+
+    if REVERSE {
+        measure_graphemes!(graphemes.rev())
+    } else {
+        measure_graphemes!(graphemes)
+    }
+
+    macro_rules! consumed_slice {
+        () => {
+            // SAFETY: The use of `get_unchecked` is safe here because
+            // `bytes_consumed` is tracking the lengths of graphemes contained
+            // within `content` and `bytes_consumed` is at a grapheme boundary.
+            unsafe {
+                if REVERSE {
+                    content.get_unchecked(content.len() - bytes_consumed..)
+                } else {
+                    content.get_unchecked(..bytes_consumed)
+                }
+            }
+        };
+    }
+
+    if exceeded_width {
+        if curr_width == width {
+            // Remove the last consumed grapheme cluster.
+            bytes_consumed -= last_grapheme_len;
+        }
+
+        add_ellipsis!(consumed_slice!()).into()
+    } else {
+        consumed_slice!().into()
+    }
+}
+
 /// Truncates a string to the specified width with a trailing ellipsis character.
 #[inline]
 pub fn truncate_str(content: &str, width: usize) -> Cow<'_, str> {
-    _truncate_str::<false>(content, width)
+    truncate_str_inner::<false>(content, width)
 }
 
 /// Truncates a string to the specified width with a leading ellipsis character.
 #[inline]
 pub fn truncate_str_leading(content: &str, width: usize) -> Cow<'_, str> {
-    _truncate_str::<true>(content, width)
+    truncate_str_inner::<true>(content, width)
 }
 
+/// A const-generic function to actually handle the
 #[inline]
-fn _truncate_str<const REVERSE: bool>(content: &str, width: usize) -> Cow<'_, str> {
+fn truncate_str_inner<const REVERSE: bool>(content: &str, width: usize) -> Cow<'_, str> {
     if content.len() <= width {
         // If the entire string fits in the width, then we just
         // need to copy the entire string over.
@@ -112,89 +196,16 @@ fn _truncate_str<const REVERSE: bool>(content: &str, width: usize) -> Cow<'_, st
     } else if let Some(nz_width) = NonZeroUsize::new(width) {
         // What we are essentially doing is optimizing for the case that
         // most, if not all of the string is ASCII. As such:
-        // - Step through each byte until (width - 1) is hit or we find a non-ascii
+        // - Step through each byte until (width - 1) is hit or we find a non-ASCII
         //   byte.
-        // - If the byte is ascii, then add it.
+        // - If the byte is ASCII, then add it.
         //
         // If we didn't get a complete truncated string, then continue on treating the rest as graphemes.
 
         match greedy_ascii_add::<REVERSE>(content, nz_width) {
             AsciiIterationResult::Complete(text) => text.into(),
-            AsciiIterationResult::Remaining(mut bytes_consumed) => {
-                // SAFETY: The use of `get_unchecked` is safe here because
-                // (`bytes_consumed` < `width`) && (`width` < `content.len()`)
-                // and `bytes_consumed` is at an ascii boundary.
-                let content_remaining = unsafe {
-                    if REVERSE {
-                        content.get_unchecked(..=content.len() - 1 - bytes_consumed)
-                    } else {
-                        content.get_unchecked(bytes_consumed..)
-                    }
-                };
-
-                let mut curr_width = bytes_consumed;
-                let mut exceeded_width = false;
-
-                // This tracks the length of the last added string - note this does NOT match the grapheme *width*.
-                // Since the previous characters are always ASCII, this is always initialized as 1, unless the string
-                // is empty.
-                let mut last_grapheme_len = if curr_width == 0 { 0 } else { 1 };
-
-                // Cases to handle:
-                // - Completes adding the entire string.
-                // - Adds a character up to the boundary, then fails.
-                // - Adds a character not up to the boundary, then fails.
-                // Inspired by https://tomdebruijn.com/posts/rust-string-length-width-calculations/
-                macro_rules! measure_graphemes {
-                    ($graphemes:expr) => {
-                        for g in $graphemes {
-                            let g_width = grapheme_width(g);
-
-                            if curr_width + g_width <= width {
-                                curr_width += g_width;
-                                last_grapheme_len = g.len();
-                                bytes_consumed += last_grapheme_len;
-                            } else {
-                                exceeded_width = true;
-                                break;
-                            }
-                        }
-                    };
-                }
-
-                let graphemes = UnicodeSegmentation::graphemes(content_remaining, true);
-
-                if REVERSE {
-                    measure_graphemes!(graphemes.rev())
-                } else {
-                    measure_graphemes!(graphemes)
-                }
-
-                macro_rules! consumed_slice {
-                    () => {
-                        // SAFETY: The use of `get_unchecked` is safe here because
-                        // `bytes_consumed` is tracking the lengths of graphemes contained
-                        // within `content` and `bytes_consumed` is at a grapheme boundary.
-                        unsafe {
-                            if REVERSE {
-                                content.get_unchecked(content.len() - bytes_consumed..)
-                            } else {
-                                content.get_unchecked(..bytes_consumed)
-                            }
-                        }
-                    };
-                }
-
-                if exceeded_width {
-                    if curr_width == width {
-                        // Remove the last consumed grapheme cluster.
-                        bytes_consumed -= last_grapheme_len;
-                    }
-
-                    add_ellipsis!(consumed_slice!()).into()
-                } else {
-                    consumed_slice!().into()
-                }
+            AsciiIterationResult::Remaining(bytes_consumed) => {
+                handle_remaining::<REVERSE>(content, bytes_consumed, width)
             }
         }
     } else {

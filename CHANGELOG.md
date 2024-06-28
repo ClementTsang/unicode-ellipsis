@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Feature
 
-- [#1](https://github.com/ClementTsang/unicode-ellipsis/pull/1): Add `truncate_str_leading`
+- [#1](https://github.com/ClementTsang/unicode-ellipsis/pull/1): Add `truncate_str_leading`, return `Cow` instead of `String`.
 
 ## 0.1.4
 
