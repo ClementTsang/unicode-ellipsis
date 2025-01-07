@@ -1,20 +1,16 @@
 //! Helper functions related to string or grapheme width.
 
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::UnicodeWidthChar;
+
+use crate::widecharwidth::char_width;
 
 /// Returns the width of a str `s`, breaking the string down into multiple [graphemes](https://www.unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries).
 /// This takes into account some things like [joiners](https://unicode-explorer.com/c/200D) when calculating width.
 #[inline]
 pub fn str_width(s: &str) -> usize {
     UnicodeSegmentation::graphemes(s, true)
-        .map(|g| {
-            if g.contains('\u{200d}') {
-                2
-            } else {
-                UnicodeWidthStr::width(g)
-            }
-        })
+        .map(grapheme_width)
         .sum()
 }
 
@@ -29,7 +25,15 @@ pub fn grapheme_width(g: &str) -> usize {
     if g.contains('\u{200d}') {
         2
     } else {
-        UnicodeWidthStr::width(g)
+        g.chars()
+            .map(|c| {
+                if let Some(w) = char_width(c) {
+                    w
+                } else {
+                    UnicodeWidthChar::width(c).unwrap_or(0)
+                }
+            })
+            .sum()
     }
 }
 
@@ -48,8 +52,8 @@ mod test {
         assert_eq!(str_width("大"), 2);
         assert_eq!(str_width("🇨🇦🇨🇦"), 4);
         assert_eq!(str_width("🇨🇦"), 2);
-        assert_eq!(str_width("हिन्दी"), 5);
-        assert_eq!(str_width("हि"), 2);
+        assert_eq!(str_width("हिन्दी"), 3);
+        assert_eq!(str_width("हि"), 1);
         // cSpell:enable;
     }
 
@@ -60,7 +64,7 @@ mod test {
         assert_eq!(grapheme_width("💎"), 2);
         assert_eq!(grapheme_width("大"), 2);
         assert_eq!(grapheme_width("🇨🇦"), 2);
-        assert_eq!(grapheme_width("हि"), 2);
+        assert_eq!(grapheme_width("हि"), 1);
         // cSpell:enable;
     }
 }

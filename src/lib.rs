@@ -5,6 +5,8 @@
 mod width;
 pub use width::*;
 
+mod widecharwidth;
+
 use std::{borrow::Cow, num::NonZeroUsize};
 
 use unicode_segmentation::UnicodeSegmentation;
@@ -591,9 +593,9 @@ mod tests {
         assert_eq!(truncate_str(test, 10), test);
         assert_eq!(truncate_str(test, 6), "हिन्दी");
         assert_eq!(truncate_str(test, 5), "हिन्दी");
-        assert_eq!(truncate_str(test, 4), "हिन्…");
-        assert_eq!(truncate_str(test, 3), "हि…");
-        assert_eq!(truncate_str(test, 2), "…");
+        assert_eq!(truncate_str(test, 4), "हिन्दी");
+        assert_eq!(truncate_str(test, 3), "हिन्दी");
+        assert_eq!(truncate_str(test, 2), "हि…");
         assert_eq!(truncate_str(test, 1), "…");
         assert_eq!(truncate_str(test, 0), "");
         // cSpell:enable
@@ -606,8 +608,8 @@ mod tests {
         assert_eq!(truncate_str_leading(test, 10), test);
         assert_eq!(truncate_str_leading(test, 6), "हिन्दी");
         assert_eq!(truncate_str_leading(test, 5), "हिन्दी");
-        assert_eq!(truncate_str_leading(test, 4), "…न्दी");
-        assert_eq!(truncate_str_leading(test, 3), "…दी");
+        assert_eq!(truncate_str_leading(test, 4), "हिन्दी");
+        assert_eq!(truncate_str_leading(test, 3), "हिन्दी");
         assert_eq!(truncate_str_leading(test, 2), "…");
         assert_eq!(truncate_str_leading(test, 1), "…");
         assert_eq!(truncate_str_leading(test, 0), "");
@@ -628,10 +630,9 @@ mod tests {
 
         // This one has a U+FE0F modifier at the end, and is thus considered "emoji-presentation",
         // see https://github.com/fish-shell/fish-shell/issues/10461#issuecomment-2079624670.
-        // This shouldn't really be a common issue in a terminal but eh.
         let heart_emoji_pres = "❤️";
         assert_eq!(truncate_str(heart_emoji_pres, 2), heart_emoji_pres);
-        assert_eq!(truncate_str(heart_emoji_pres, 1), "…");
+        assert_eq!(truncate_str(heart_emoji_pres, 1), heart_emoji_pres);
         assert_eq!(truncate_str(heart_emoji_pres, 0), "");
 
         let emote = "💎";
@@ -664,10 +665,9 @@ mod tests {
 
         // This one has a U+FE0F modifier at the end, and is thus considered "emoji-presentation",
         // see https://github.com/fish-shell/fish-shell/issues/10461#issuecomment-2079624670.
-        // This shouldn't really be a common issue in a terminal but eh.
         let heart_emoji_pres = "❤️";
         assert_eq!(truncate_str_leading(heart_emoji_pres, 2), heart_emoji_pres);
-        assert_eq!(truncate_str_leading(heart_emoji_pres, 1), "…");
+        assert_eq!(truncate_str_leading(heart_emoji_pres, 1), heart_emoji_pres);
         assert_eq!(truncate_str_leading(heart_emoji_pres, 0), "");
 
         let emote = "💎";
