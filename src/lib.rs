@@ -5,6 +5,7 @@
 mod width;
 pub use width::*;
 
+#[cfg(feature = "fish")]
 mod widecharwidth;
 
 use std::{borrow::Cow, num::NonZeroUsize};
@@ -587,6 +588,7 @@ mod tests {
 
     /// This might not be the best way to handle it, but this at least tests that it doesn't crash...
     #[test]
+    #[cfg(feature = "fish")]
     fn test_truncate_hindi() {
         // cSpell:disable
         let test = "हिन्दी";
@@ -602,6 +604,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "fish")]
     fn test_truncate_hindi_leading() {
         // cSpell:disable
         let test = "हिन्दी";
@@ -632,6 +635,7 @@ mod tests {
         // see https://github.com/fish-shell/fish-shell/issues/10461#issuecomment-2079624670.
         let heart_emoji_pres = "❤️";
         assert_eq!(truncate_str(heart_emoji_pres, 2), heart_emoji_pres);
+        #[cfg(feature = "fish")]
         assert_eq!(truncate_str(heart_emoji_pres, 1), heart_emoji_pres);
         assert_eq!(truncate_str(heart_emoji_pres, 0), "");
 
@@ -667,6 +671,7 @@ mod tests {
         // see https://github.com/fish-shell/fish-shell/issues/10461#issuecomment-2079624670.
         let heart_emoji_pres = "❤️";
         assert_eq!(truncate_str_leading(heart_emoji_pres, 2), heart_emoji_pres);
+        #[cfg(feature = "fish")]
         assert_eq!(truncate_str_leading(heart_emoji_pres, 1), heart_emoji_pres);
         assert_eq!(truncate_str_leading(heart_emoji_pres, 0), "");
 

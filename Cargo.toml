@@ -12,6 +12,10 @@ description = "A crate to truncate Unicode strings to a certain width, automatic
 documentation = "https://docs.rs/unicode-ellipsis"
 exclude = [".github", "CHANGELOG.md"]
 
+[features]
+fish = []
+default = ["fish"]
+
 [lib]
 test = true
 doctest = true
@@ -19,7 +23,7 @@ doc = true
 
 [dependencies]
 unicode-segmentation = "1.12.0"
-unicode-width = "0.2.0"
+unicode-width = { version = "0.2.0", default-features = false }
 
 [lints.rust]
 rust_2018_idioms = "deny"
