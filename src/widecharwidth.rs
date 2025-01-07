@@ -401,6 +401,13 @@ pub(crate) fn char_width(c: char) -> Option<usize> {
     } else if in_table(&COMBININGLETTERS_TABLE, c) {
         Some(0)
     } else {
-        None
+        // SAFETY: this was converted from a char in the first place.
+        let c = unsafe { char::from_u32_unchecked(c) };
+
+        if c == '\u{ffa0}' || c == '\u{115f}' {
+            Some(0)
+        } else {
+            None
+        }
     }
 }
