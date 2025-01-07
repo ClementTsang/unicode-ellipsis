@@ -1,7 +1,7 @@
 //! Some additional checks based on https://github.com/ridiculousfish/widecharwidth/blob/master/widechar_width.rs.
 
 /// Nonprinting characters.
-const NONPRINT_TABLE: &'static [(u32, u32)] = &[
+const NONPRINT_TABLE: &[(u32, u32)] = &[
     (0x00000, 0x0001F),
     (0x0007F, 0x0009F),
     (0x000AD, 0x000AD),
@@ -29,7 +29,7 @@ const NONPRINT_TABLE: &'static [(u32, u32)] = &[
 ];
 
 /// Width 0 combining marks.
-const COMBINING_TABLE: &'static [(u32, u32)] = &[
+const COMBINING_TABLE: &[(u32, u32)] = &[
     (0x00300, 0x0036F),
     (0x00483, 0x00489),
     (0x00591, 0x005BD),
@@ -354,10 +354,10 @@ const COMBINING_TABLE: &'static [(u32, u32)] = &[
 ];
 
 /// Width 0 combining letters.
-const COMBININGLETTERS_TABLE: &'static [(u32, u32)] = &[(0x01160, 0x011FF), (0x0D7B0, 0x0D7FF)];
+const COMBININGLETTERS_TABLE: &[(u32, u32)] = &[(0x01160, 0x011FF), (0x0D7B0, 0x0D7FF)];
 
 /// Non-characters.
-const NONCHAR_TABLE: &'static [(u32, u32)] = &[
+const NONCHAR_TABLE: &[(u32, u32)] = &[
     (0x0FDD0, 0x0FDEF),
     (0x0FFFE, 0x0FFFF),
     (0x1FFFE, 0x1FFFF),
@@ -392,18 +392,17 @@ fn in_table(arr: &[(u32, u32)], c: u32) -> bool {
 pub(crate) fn char_width(c: char) -> Option<usize> {
     let c = c as u32;
 
-    if in_table(&NONPRINT_TABLE, c) {
-        Some(0)
-    } else if in_table(&NONCHAR_TABLE, c) {
-        Some(0)
-    } else if in_table(&COMBINING_TABLE, c) {
-        Some(0)
-    } else if in_table(&COMBININGLETTERS_TABLE, c) {
+    if in_table(NONPRINT_TABLE, c)
+        || in_table(NONCHAR_TABLE, c)
+        || in_table(COMBINING_TABLE, c)
+        || in_table(COMBININGLETTERS_TABLE, c)
+    {
         Some(0)
     } else {
         // SAFETY: this was converted from a char in the first place.
         let c = unsafe { char::from_u32_unchecked(c) };
 
+        // See https://github.com/ridiculousfish/widecharwidth/issues/32
         if c == '\u{ffa0}' || c == '\u{115f}' {
             Some(0)
         } else {
