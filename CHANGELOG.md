@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.3.0
 
-### Changes
+### Breaking Changes
 
 - [#6](https://github.com/ClementTsang/unicode-ellipsis/pull/6): Update unicode dependencies,
   and modify how we calculate some widths to be based on [fish's approach.](https://github.com/ridiculousfish/widecharwidth).
