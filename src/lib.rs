@@ -5,6 +5,7 @@
 mod width;
 pub use width::*;
 
+#[cfg(feature = "fish")]
 mod widecharwidth;
 
 use std::{borrow::Cow, num::NonZeroUsize};
