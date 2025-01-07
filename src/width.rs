@@ -1,8 +1,8 @@
 //! Helper functions related to string or grapheme width.
 
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthChar;
 
+#[cfg(feature = "fish")]
 use crate::widecharwidth::char_width;
 
 /// Returns the width of a str `s`, breaking the string down into multiple [graphemes](https://www.unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries).
@@ -25,15 +25,25 @@ pub fn grapheme_width(g: &str) -> usize {
     if g.contains('\u{200d}') {
         2
     } else {
-        g.chars()
-            .map(|c| {
-                if let Some(w) = char_width(c) {
-                    w
-                } else {
-                    UnicodeWidthChar::width(c).unwrap_or(0)
-                }
-            })
-            .sum()
+        #[cfg(feature = "fish")]
+        {
+            use unicode_width::UnicodeWidthChar;
+            g.chars()
+                .map(|c| {
+                    if let Some(w) = char_width(c) {
+                        w
+                    } else {
+                        UnicodeWidthChar::width(c).unwrap_or(0)
+                    }
+                })
+                .sum()
+        }
+
+        #[cfg(not(feature = "fish"))]
+        {
+            use unicode_width::UnicodeWidthStr;
+            UnicodeWidthStr::width(g)
+        }
     }
 }
 
@@ -52,8 +62,18 @@ mod test {
         assert_eq!(str_width("大"), 2);
         assert_eq!(str_width("🇨🇦🇨🇦"), 4);
         assert_eq!(str_width("🇨🇦"), 2);
-        assert_eq!(str_width("हिन्दी"), 3);
-        assert_eq!(str_width("हि"), 1);
+
+        #[cfg(feature = "fish")]
+        {
+            assert_eq!(str_width("हिन्दी"), 3);
+            assert_eq!(str_width("हि"), 1);
+        }
+
+        #[cfg(not(feature = "fish"))]
+        {
+            assert_eq!(str_width("हिन्दी"), 5);
+            assert_eq!(str_width("हि"), 2);
+        }
         // cSpell:enable;
     }
 
@@ -64,7 +84,10 @@ mod test {
         assert_eq!(grapheme_width("💎"), 2);
         assert_eq!(grapheme_width("大"), 2);
         assert_eq!(grapheme_width("🇨🇦"), 2);
+        #[cfg(feature = "fish")]
         assert_eq!(grapheme_width("हि"), 1);
+        #[cfg(not(feature = "fish"))]
+        assert_eq!(grapheme_width("हि"), 2);
         // cSpell:enable;
     }
 }

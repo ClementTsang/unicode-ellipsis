@@ -12,6 +12,10 @@ description = "A crate to truncate Unicode strings to a certain width, automatic
 documentation = "https://docs.rs/unicode-ellipsis"
 exclude = [".github", "CHANGELOG.md"]
 
+[features]
+fish = []
+default = ["fish"]
+
 [lib]
 test = true
 doctest = true
