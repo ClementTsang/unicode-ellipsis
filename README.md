@@ -6,6 +6,8 @@
 A crate to truncate Unicode strings to a certain width, automatically adding an ellipsis if the string is too long. Also
 has some helper functions around Unicode grapheme and string width.
 
+Originally written for use with [bottom](https://github.com/ClementTsang/bottom).
+
 ## Usage
 
 An example of usage:
