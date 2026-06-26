@@ -1,6 +1,6 @@
 [package]
 name = "unicode-ellipsis"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["Clement Tsang <cjhtsang@uwaterloo.ca>"]
 license = "MIT OR Apache-2.0"
@@ -22,7 +22,7 @@ doctest = true
 doc = true
 
 [dependencies]
-unicode-segmentation = "1.13.2"
+unicode-segmentation = "1.13.3"
 unicode-width = { version = "0.2.2", default-features = false }
 
 [lints.rust]
